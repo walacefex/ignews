@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from "next";
 import { Readable } from "stream";
 import Stripe from "stripe";
 import { stripe } from "../../services/stripe";
+import { saveSubscription } from "./_lib/managerSubscription";
 
 async function buffer(readable: Readable) {
   const chunks = [];
@@ -35,9 +36,28 @@ export default async (req: NextApiRequest, res: NextApiResponse) => {
       return res.status(400).send(`Webhook error: ${err.message}`);
     }
 
-    const type = event.type;
+    const { type } = event;
 
-    res.status(200).json({ ok: true });
+    if (relevantEvents.has(type)) {
+      try {
+        switch (type) {
+          case "checkout.session.completed":
+            const checkoutSession = event.data
+              .object as Stripe.Checkout.Session;
+            await saveSubscription(
+              checkoutSession.subscription.toString(),
+              checkoutSession.customer.toString()
+            );
+            break;
+          default:
+            throw new Error("Unhandled event.");
+        }
+      } catch (error) {
+        return res.json({ error: "Webhook handle filed" });
+      }
+    }
+
+    res.json({ received: true });
   } else {
     res.setHeader("Allow", "POST");
     res.status(405).end("Method not allowed");
